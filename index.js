@@ -7,12 +7,12 @@ config()
 
 // Using Google's Gemini model
 const llm1 = new ChatGoogleGenerativeAI({
-    model: product.env.MODEL,
+    model: process.env.MODEL,
     apiKey: process.env.GEMINI_KEY
 });
 
 const llm2 = new ChatGoogleGenerativeAI({
-    model: product.env.MODEL,
+    model: process.env.MODEL,
     apiKey: process.env.GEMINI_KEY
 });
 
@@ -159,9 +159,11 @@ const workflow = new StateGraph({ channels: response })
             "select": "select",
             "regenerate": "generate"
         }
-    )
+    ).addEdge("select","__end__")
 
 const graph = workflow.compile();
+
+
 
 const product = {
     "title": "Glossy Pink & Purple Gradient Case",
@@ -173,6 +175,8 @@ const product = {
 // Execute the workflow
 (async () => {
     try {
+        // const graph1 = await graph.getGraphAsync();
+        // console.log(JSON.stringify(graph1.toJSON()));
         const result = await graph.invoke({
             input: `Create a notification using this product details ${JSON.stringify(product)} `,
             notification: [],

@@ -1,0 +1,14 @@
+flowchart TD
+    Start(["⏳ Start"])
+    Generate([🔁 generate])
+    Evaluate([🧪 evaluate])
+    Select([✅ select])
+    End(["🏁 End"])
+
+    Start --> Generate
+    Generate --> Evaluate
+
+    Evaluate -->|pass| Select
+    Evaluate -->|regenerate| Generate
+
+    Select --> End
