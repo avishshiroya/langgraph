@@ -1,71 +1,118 @@
-const { z } = require("zod")
-const { OpenRouterChat } = require("./openrouter.js")
-const { StateGraph, Annotation } = require("@langchain/langgraph")
 
+const { z } = require("zod");
+const { StateGraph, } = require("@langchain/langgraph");
+const { ChatGoogleGenerativeAI } = require("@langchain/google-genai");
+const { config } = require("dotenv")
+config()
 
-const llm1 = OpenRouterChat({
-    modelName: "qwen/qwen3-235b-a22b:free",
-    apiKey: "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"
-})
+// Using Google's Gemini model
+const llm1 = new ChatGoogleGenerativeAI({
+    model: process.env.MODEL,
+    apiKey: process.env.GEMINI_KEY
+});
 
-const llm2 = OpenRouterChat({
-    modelName: "qwen/qwen3-235b-a22b:free",
-    apiKey: "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"
-})
+const llm2 = new ChatGoogleGenerativeAI({
+    model: process.env.MODEL,
+    apiKey: process.env.GEMINI_KEY
+});
+
+const response = {
+    input: z.string().describe("User input for notification generation"),
+    notification: z.array(
+        z.object({
+            title: z.string().describe("Title of the notification"),
+            message: z.string().describe("Creative message for the user including tone, context, and product details")
+        })
+    ).describe("List of generated notifications"),
+    grade: z.enum(["ok", "bad"]).describe("Evaluation grade of notifications - ok or bad"),
+    feedback: z.string().describe("Detailed feedback explaining improvements needed for notifications")
+}
 
 const notificationSchema = z.array(z.object({
     title: z.string().describe("Title of the notification"),
     message: z.string().describe("Creative message for the user including tone, context, and product details")
 }));
 
-
-const notificationEvaluator = llm1.withStructuredOutput(notificationSchema)
-
-const feedBack = z.object({
+const feedbackSchema = z.object({
     grade: z.enum(['ok', "bad"]).describe("Evaluate if the notification is good or needs changes"),
     feedback: z.string().describe("Feedback explaining what to improve if needed")
 });
 
+const notificationEvaluator = llm1.withStructuredOutput(notificationSchema);
+const responseEvaluator = llm2.withStructuredOutput(feedbackSchema);
 
-const responseEvaluator = llm2.withStructuredOutput(feedBack)
-
-const StateAnnotation = Annotation.Root({
-    notification: notificationSchema,
-    input: String,
-    grade: String,
-    feedback: String,
-});
-
-let retryCount = 0;
 const MAX_RETRIES = 3;
+let retries
 
-const generateNotification = async (state) => {
-    retryCount++
-    if (retryCount > MAX_RETRIES) {
+
+// Function to generate notification
+const generateNotification = async (values) => {
+    // Create current state from values
+    const state = { ...values };
+    retries += 1;
+
+    if (retries > MAX_RETRIES) {
         return {
+            ...state,
             notification: [{
                 title: "Fallback Notification",
-                message: "Sorry! We couldn’t generate a suitable message after several attempts."
+                message: "Sorry! We couldn't generate a suitable message after several attempts."
             }]
         };
     }
+    console.log(state);
+
     if (state.feedback) {
         const msg = await notificationEvaluator.invoke([
-            { role: "system", content: "You are the head of marketing department. your work is select the most relatable notifications in the list which is given by your juniors. also , check the user prompt and match the requirements and notification list . then, select the appropriate notifications and return it if needed you can modified it.your strategies about you first rate the notifications. and approved the notification which has rate between 8 to 10. If notifications not appropriat then you create the 3 to 4 notifications. with the some creative ideas." },
-            { role: "user", content: `this is the user prompt ${state.input} on the user prompt check the given notification and rate based on this notifications ${state.notification} and return best notification. and this one is feedback for the notification is this is helpful ${state.feedback}` }
-        ])
-        return { notification: msg }
+            {
+                role: "system",
+                content: "You are the best marketing agent who can create mobile notifications with creative thoughts, emotionally engaging, romantic, fun & joyful notifications for end users. You have mastery in creative thinking. You can reference festivals, current news, etc. within the coming month. Provide 7-9 different notifications formatted as requested. Most importantly, ensure all notifications are unique."
+            },
+            {
+                role: "user",
+                content: `This is the user prompt: ${state.input}. Based on the user prompt, check the given notifications and rate them: ${JSON.stringify(state.notification)}. Return the best notification. Feedback for the previous notification: ${state.feedback}`
+            }
+        ]);
+        console.log("Feed back ........ 1awerbjklfdhkhzfkljkzdfbkljhzdfklklzdfjklzildfg ", msg);
+
+        return { ...state, notification: msg };
     } else {
         const msg = await notificationEvaluator.invoke([
-            { role: "system", content: "You are the best marketing agent. who can create the mobile notifications with creative thought like attachment of the emotionally , romantically with fun & joy with the noitifaction to end user. And You have the mastery in the creativity thoughts. You can go as well with the festivals , current news and etc . within come in the one month. You can provide the multiple type of notification length between minimum 7 - maximum 9 and format in which is like given. most important things about you , your given all notification always unique." },
-            { role: "user", content: `Create notifications using the user prompt ${state.input}` }
-        ])
-        return { notification: msg }
+            {
+                role: "system",
+                content: "You are the best marketing agent who can create mobile notifications with creative thoughts, emotionally engaging, romantic, fun & joyful notifications for end users. You have mastery in creative thinking. You can reference festivals, current news, etc. within the coming month. Provide 7-9 different notifications formatted as requested. Most importantly, ensure all notifications are unique."
+            },
+            {
+                role: "user",
+                content: `Create notifications using the user prompt: ${state.input}`
+            }
+        ]);
+        console.log("Only Msg ........ 1awerbjklfdhkhzfkljkzdfbkljhzdfklklzdfjklzildfg ", msg);
+        return { ...state, notification: msg };
     }
-}
+};
+const selectNotifcation = async (values) => {
+    const state = { ...values };
 
+    const msg = await notificationEvaluator.invoke([
+        {
+            role: "system",
+            content: "You are the head of marketing department. Your work is to select the most relatable notifications in the list which is given by your juniors. Also, check the user prompt and match the requirements and notification list. Then, select the appropriate notifications and return it. If needed, you can modify them. Your strategy is to first rate the notifications and approve those with rates between 8 to 10. If notifications are not appropriate,and minimum you have to select 3 t0 4 notification and it is not so then you have to create 3 to 4 notifications with creative ideas."
+        },
+        {
+            role: "user",
+            content: `This is the user prompt: ${state.input}. Based on the user prompt, check the given notifications and rate them: ${JSON.stringify(state.notification)}. Return the best notification.`
+        }
+    ]);
+    console.log("Select the notification ........ 1awerbjklfdhkhzfkljkzdfbkljhzdfklklzdfjklzildfg ", msg);
 
-const llmCallEvaluator = async (state) => {
+    return { ...state, notification: msg };
+
+};
+
+const evaluateNotification = async (values) => {
+    const state = { ...values };
+
     const messages = [
         {
             role: "system",
@@ -76,37 +123,68 @@ const llmCallEvaluator = async (state) => {
             content: `Evaluate the following notification based on the input: "${state.input}"\nNotifications: ${JSON.stringify(state.notification)}`
         }
     ];
+
     const result = await responseEvaluator.invoke(messages);
+    console.log(result);
+
     return {
+        ...state,
         grade: result.grade,
         feedback: result.feedback
     };
 };
 
-
-const conditionalEdge = async (state) => {
-    if (state.grade == "ok") {
-        return "OK"
+// Conditional routing function
+const shouldContinue = (values) => {
+    if (values.grade === "ok") {
+        return "select";
+        // return "end";
     } else {
-        return "BAD"
+        return "regenerate";
     }
-}
+};
 
-const workFlow = new StateGraph(StateAnnotation)
-    .addNode("llmCall", generateNotification)
-    .addNode("llmCallEvaluator", llmCallEvaluator)
-    .addEdge("__start__", "llmCall")
-    .addEdge("llmCall", "llmCallEvaluator")
-    .addConditionalEdges("llmCallEvaluator", conditionalEdge, {
-        "OK": "__end__",
-        "BAD": "llmCall"
-    })
-    .compile();
+// Create and compile the workflow
+const workflow = new StateGraph({ channels: response })
+    .addNode("generate", generateNotification)
+    .addNode("evaluate", evaluateNotification)
+    .addNode("select", selectNotifcation)
+    .addEdge("__start__", "generate")
+    .addEdge("generate", "evaluate")
+    .addConditionalEdges(
+        "evaluate",
+        shouldContinue,
+        {
+            // "end": "__end__",
+            "select": "select",
+            "regenerate": "generate"
+        }
+    ).addEdge("select","__end__")
 
+const graph = workflow.compile();
+
+
+
+const product = {
+    "title": "Glossy Pink & Purple Gradient Case",
+    "description": "The latest iteration of our flagship protective case features impact-absorbing materials and MagSafe® compatibility, all in a sleeker design that's thinner yet just as protective.",
+    "price": 119.99,
+    "salePrice": 79.99
+};
+
+// Execute the workflow
 (async () => {
-    const result = await workFlow.invoke({
-        input: "create the 10% on diwali festival notification"
-    });
-    console.log("Final Approved Notifications:\n", result.notification);
+    try {
+        // const graph1 = await graph.getGraphAsync();
+        // console.log(JSON.stringify(graph1.toJSON()));
+        const result = await graph.invoke({
+            input: `Create a notification using this product details ${JSON.stringify(product)} `,
+            notification: [],
+            grade: "",
+            feedback: ""
+        });
+        console.log("Final Approved Notifications:\n", result);
+    } catch (error) {
+        console.error("Error executing workflow:", error);
+    }
 })();
-
